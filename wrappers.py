@@ -22,7 +22,7 @@ class req_wrapper():
     def do_post_request_multipart(self, url, json_data, file):
         data = json.loads(json_data)
         data["file"] = (file, open(file, 'rb'))        
-        self.last_request = requests.request(method="POST", url=url, file=data, auth=(self.username, self.password), headers={'Content-type': 'multipart/form-data'})
+        self.last_request = requests.request(method="POST", url=url, files=data, auth=(self.username, self.password), headers={'Content-type': 'multipart/form-data'})
         return self.last_request
     
     def do_get_request(self, url, json_data = ""):

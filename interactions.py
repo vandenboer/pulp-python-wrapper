@@ -106,10 +106,16 @@ class create_interactions(base_interactions):
 class upload_interactions(base_interactions):
     
     def upload_package(self, package_file, repository = None):
+        # TODO: Set relative path
         json_data = "{}"
         if repository != None:
             json_data = "{ \"repository\": \"%s\"}" % repository
         self.req_wrapper.do_post_request_multipart("%s/pulp/api/v3/content/rpm/packages/" % self.pulp_url, json_data, package_file)
+        # TODO: create upload, use PUT method
         json = json_wrapper(self.req_wrapper.get_request_content())
         return json.data
+
+class function_interactions(base_interactions):
     
+    def copy(self, source_repository, destination_repository, package_list = [], dependency_list = [], wait_for_task = False):
+        return
