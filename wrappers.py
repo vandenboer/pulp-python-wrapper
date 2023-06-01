@@ -17,16 +17,42 @@ class req_wrapper():
         
     def do_post_request(self, url, json_data = ""):
         self.last_request = requests.request(method="POST", url=url, data=json_data, auth=(self.username, self.password), headers={'Content-type': 'application/json'})
+        if not self.is_request_ok():
+            raise Exception("Post request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
         return self.last_request
     
     def do_post_request_multipart(self, url, json_data, file):
         data = json.loads(json_data)
         data["file"] = (file, open(file, 'rb'))        
         self.last_request = requests.request(method="POST", url=url, files=data, auth=(self.username, self.password), headers={'Content-type': 'multipart/form-data'})
+        if not self.is_request_ok():
+            raise Exception("Post request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
         return self.last_request
     
     def do_get_request(self, url, json_data = ""):
         self.last_request = requests.request(method="GET", url=url, data=json_data, auth=(self.username, self.password))
+        if not self.is_request_ok():
+            raise Exception("Get request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
+        return self.last_request
+    
+    def do_put_request(self, url, file, json_data = "", byte_data = None):
+        data = json.loads(json_data)
+        if byte_data == None:
+            data["file"] = (file, open(file, 'rb'))
+        else:
+            data["file"] = (file, byte_data)
+        self.last_request = requests.request(method="PUT", url=url, files=data, auth=(self.username, self.password), headers={'Content-type': 'multipart/form-data'})
+        if not self.is_request_ok():
+            raise Exception("Put request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
+        return self.last_request
+    
+    def do_delete_request(self, url, json_data = ""):
+        if json_data == "":
+            self.last_request = requests.request(method="DELETE", url=url, auth=(self.username, self.password))
+        else:
+            self.last_request = requests.request(method="DELETE", url=url, data=json_data, auth=(self.username, self.password))
+        if not self.is_request_ok():
+            raise Exception("Delete request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
         return self.last_request
     
     def get_request_content(self, request = None):
