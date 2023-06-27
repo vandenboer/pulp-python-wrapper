@@ -7,6 +7,7 @@ Created on Tue May 18 19:21:44 2023
 """
 import requests
 import json
+import re 
 
 class req_wrapper():
     
@@ -21,10 +22,8 @@ class req_wrapper():
             raise Exception("Post request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
         return self.last_request
     
-    def do_post_request_multipart(self, url, json_data, file):
-        data = json.loads(json_data)
-        data["file"] = (file, open(file, 'rb'))        
-        self.last_request = requests.request(method="POST", url=url, files=data, auth=(self.username, self.password), headers={'Content-type': 'multipart/form-data'})
+    def do_post_request_multipart(self, url, files_data):
+        self.last_request = requests.request(method="POST", url=url, files=files_data, auth=(self.username, self.password))#, headers={'Content-type': "multipart/form-data;"}) # boundary=%s" % md5})
         if not self.is_request_ok():
             raise Exception("Post request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
         return self.last_request
@@ -68,4 +67,34 @@ class req_wrapper():
 class json_wrapper():
     
     def __init__(self, json_string):
-        self.data = json.loads(json_string)
+        if json_string == None or json_string == []:
+            self.data = json.loads("{}")
+        else:
+            self.data = json.loads(json_string)
+
+class regex_filter():
+    
+    def __init__(self, regex):
+        if regex.startswith("*"):
+            regex.replace("*", "", 1)
+        else:
+            regex = "^" + regex
+        regex = regex[::-1]
+        if regex.startswith("*"):
+            regex.replace("*", "", 1)
+        else:
+            regex = "$" + regex
+        regex = regex[::-1].replace("*", ".*")
+        self.regex = re.compile(regex)
+    
+    def filter_list(self, input_list):
+        return list(filter(self.regex.search, input_list))
+
+    def invert_filter_list(self, input_list):
+        n_list = self.filter_list(input_list)
+        return list(set(input_list).difference(n_list))
+    
+class url_encoder():
+    
+    def __init__(self, text):
+        self.encoded = requests.utils.quote(text, safe='')

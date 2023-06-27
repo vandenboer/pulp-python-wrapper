@@ -6,18 +6,9 @@ Created on Tue May 18 19:21:30 2023
 @author: vandenboer
 """
 import time
-from wrappers import req_wrapper, json_wrapper
 
-class pulp_manager():
-    
-    def __init__(self, pulp_url, username, password):
-        self.getter = get_interactions(pulp_url, username, password)
-        self.creator = create_interactions(pulp_url, username, password)
-        #self.uploader = upload_interactions(pulp_url, username, password)
-        self.functions = function_interactions(pulp_url, username, password)
-        self.deleter = delete_interactions(pulp_url, username, password)
-
-
+from wrappers import req_wrapper, json_wrapper, regex_filter
+from pathlib import Path
 
 class base_interactions():
     def __init__(self, pulp_url, username, password):
@@ -27,8 +18,8 @@ class base_interactions():
         self.req_wrapper = req_wrapper(username, password)
         
     def get_pulp_var(self, var_name, sub_url, json_data):
-        self.req_wrapper.do_get_request("%s%s" % (self.pulp_url, sub_url), json_data)
-        json = json_wrapper(self.req_wrapper.get_request_content())
+        req = self.req_wrapper.do_get_request("%s%s" % (self.pulp_url, sub_url), json_data)
+        json = json_wrapper(self.req_wrapper.get_request_content(req))
         result = []
         for i in json.data['results']:
             if var_name == "":
@@ -53,19 +44,40 @@ class base_interactions():
         state = json.data["state"]
         if state == "completed":
             return True
-        elif state == "running":
+        elif state == "running" or state == "waiting":
             return False
         else:
-            raise Exception("Unknown state %s" % state)
+            raise Exception("Unknown state: %s" % state)
         
-    
+    def is_subtask_completed(self, task_href, subtask_name):
+        task_json = self.show_href(task_href)
+        for i in task_json["progress_reports"]:
+            if i["code"] == subtask_name:
+                state = i["state"]
+                if state == "completed":
+                    return True
+                elif state == "running" or state == "waiting":
+                    return False
+                else:
+                    raise Exception("Unknown state: %s" % state)
+        
     def wait_for_task(self, task_href):
+        while self.show_href(task_href)["state"] == "waiting":
+            time.sleep(0.1)
         task_json = self.show_href(task_href)
         print("Waiting for task: %s" % task_json["name"])
-        while not self.is_task_completed(task_href):
-            print('.', end='')
-            time.sleep(1)
-        print()
+        if task_json["progress_reports"] == []:
+            while not self.is_task_completed(task_href):
+                print('.', end='')
+                time.sleep(1)
+            print(".done")
+        else:
+            for i in task_json["progress_reports"]:
+                print("Waiting for subtask: %s" % i["code"], end='')
+                while not self.is_subtask_completed(task_href, i["code"]):
+                    print('.', end='')
+                    time.sleep(1)
+                print(".done")
     
     def wait_for_all_task_type(self, task_type):
         self.get_pulp_var("pulp_href", "/pulp/api/v3/tasks/?state=completed&name=%s" % task_type, "{}")
@@ -95,45 +107,77 @@ class base_interactions():
 
 class get_interactions(base_interactions):
     
-    def get_repo_href(self, name):
-        result = self.get_pulp_var("pulp_href", "/pulp/api/v3/repositories/rpm/rpm/", "{\"name\": \"%s\"}" % name)
+    def _get_wrap(self, var_name, url, json):
+        result = self.get_pulp_var(var_name, url, json)
         if len(result) != 0:
             return result[0]
+        
+    def _get_wrap_no_limit(self, var_name, url, json):
+        limit = 100
+        offset = 0
+        data = self.get_pulp_var(var_name, "%s&limit=%s" % (url, limit), json)
+        result = data
+        while len(data) == limit:
+            offset += limit
+            data = self.get_pulp_var(var_name, "%s&limit=%s&offset=%s" % (url, limit, offset), json)
+            result += data
+        return result
+        
+    def get_repository_name(self, href):
+        return self.show_href(href)['name']
+    
+    def get_repository_href(self, name):
+        return self._get_wrap("pulp_href", "/pulp/api/v3/repositories/rpm/rpm/?name=%s&offset=0&limit=1" % name, "{}")
     
     def get_all_repositories(self):
         return self.get_pulp_var("pulp_href", "/pulp/api/v3/repositories/rpm/rpm/", "{}")
         
-    def get_repo_version_href(self, name):
-        result =  self.get_pulp_var("latest_version_href", "/pulp/api/v3/repositories/rpm/rpm/", "\{\"name\": \"%s\"}" % name)
-        if len(result) != 0:
-            return result[0]
+    def get_repository_version_href(self, name):
+        return self._get_wrap("latest_version_href", "/pulp/api/v3/repositories/rpm/rpm/?name=%s&offset=0&limit=1" % name, "{}")
         
     def get_remote_href(self, name):
-        result =  self.get_pulp_var("pulp_href", "/pulp/api/v3/remotes/rpm/rpm/", "{\"name\": \"%s\"}" % name)
-        if len(result) != 0:
-            return result[0]
-        
+        return self._get_wrap("pulp_href", "/pulp/api/v3/remotes/rpm/rpm/?name=%s&offset=0&limit=1" % name, "{}")
+    
+    def get_remote_name(self, href):
+        return self.show_href(href)['name']
+
     def get_all_remotes(self):
         return self.get_pulp_var("pulp_href", "/pulp/api/v3/remotes/rpm/rpm/", "{}")
         
     def get_distribution_href(self, name):
-        result =  self.get_pulp_var("pulp_href", "/pulp/api/v3/distributions/rpm/rpm/", "{\"name\": \"%s\"}" % name)
-        if len(result) != 0:
-            return result[0]
-        
+        return self._get_wrap("pulp_href", "/pulp/api/v3/distributions/rpm/rpm/?name=%s&offset=0&limit=1" % name, "{}")
+    
+    def get_distribution_name(self, href):
+        return self.show_href(href)['name']
+
     def get_all_distributions(self):
         return self.get_pulp_var("pulp_href", "/pulp/api/v3/distributions/rpm/rpm/", "{}")
         
     def get_package_href(self, name):
-        result =  self.get_pulp_var("pulp_href", "/pulp/api/v3/content/rpm/packages/", "{\"name\": \"%s\"}" % name)
-        if len(result) != 0:
-            return result[0]
+        return self._get_wrap("pulp_href", "/pulp/api/v3/content/rpm/packages/?name=%s&offset=0&limit=1" % name, "{}")
+    
+    def get_all_repository_package_names(self, repository_name):
+        data = self._get_wrap_no_limit("name", "/pulp/api/v3/content/rpm/packages/?fields=name&repository_version=%s" % self.get_repository_version_href(repository_name), "{}")
+        return data
+        
+    def get_all_repository_non_package_href(self, repository_name):
+        list = []
+        types = ["advisories","distribution_trees","modulemd_defaults","modulemds","packagecategories","packageenvironments","packagegroups","packagelangpacks","repo_metadata_files"]
+        for t in types:
+            data = self._get_wrap_no_limit("pulp_href", "/pulp/api/v3/content/rpm/%s/?fields=pulp_href&repository_version=%s" % (t, self.get_repository_version_href(repository_name)), "{}")
+            list += data
+        return list
+    
+    def get_status(self):
+        req = self.req.do_get_request("%s/pulp/api/v3/status/" % self.pulp_url)
+        json = json_wrapper(self.req_wrapper.get_request_content(req))
+        return json.data
 
 
 
 class create_interactions(base_interactions):
     
-    def create_repo(self, name, remote = None, wait_for_task = True):
+    def create_repository(self, name, remote = None, wait_for_task = True):
         append = ""
         if remote != None:
             append = ", \"remote\":\"%s\"" % remote
@@ -162,40 +206,53 @@ class create_interactions(base_interactions):
         json = self.show_href(task_href)
         return json["created_resources"][0] 
         
-        
-# class upload_interactions(base_interactions):
     
-#     def upload_package(self, package_file, relative_path = "/", repository = None):
-#         upload_href = self.create_upload(package_file)
-#         append = ""
-#         if repository != None:
-#             append = ", \"repository\": \"%s\"" % repository
-#         json_data = "{ \"file\":\"%s\" , \"relative_path\":\"%s\", \"upload\":\"%s\" %s }" % (package_file, relative_path, upload_href, append)
         
-#         self.req_wrapper.do_post_request_multipart("%s/pulp/api/v3/content/rpm/packages/" % self.pulp_url, json_data, package_file)
-#         json = json_wrapper(self.req_wrapper.get_request_content())
+class upload_interactions(base_interactions):
+  
+    def upload_comps(self, comps_file, repository = None, replace = False, wait_for_task = True):
+        data = {}
+        if repository != None:
+            data["repository"] = (None, repository)
+        data["replace"] = (None, replace)
+        data["file"] = ("file" , Path(comps_file).read_bytes(), "application/octet-stream")
+        json = json_wrapper(self.req_wrapper.do_post_request_multipart("%s/pulp/api/v3/rpm/comps/" % self.pulp_url, data).content.decode())
+        task_href = json.data["task"]
+        if wait_for_task:
+            self.wait_for_task(task_href)
+        return task_href
         
-#         # TODO: create upload, use PUT method
-#         self.do_upload(package_file)
-        
+    # def upload_package(self, package_file, relative_path = "/", repository = None):
+    #     upload_href = self.create_upload(package_file)
+    #     append = ""
+    #     if repository != None:
+    #         append = ", \"repository\": \"%s\"" % repository
+    #     json_data = "{ \"file\":\"%s\" , \"relative_path\":\"%s\", \"upload\":\"%s\" %s }" % (package_file, relative_path, upload_href, append)
+      
+    #     self.req_wrapper.do_post_request_multipart("%s/pulp/api/v3/content/rpm/packages/" % self.pulp_url, json_data, package_file)
+    #     json = json_wrapper(self.req_wrapper.get_request_content())
+      
+    #     # TODO: create upload, use PUT method
+    #     self.do_upload(package_file)
+      
+    # def do_upload(self, package_file):
+    #     buffer_size = 1024
+    #     count = 0
+    #     with io.open(package_file, 'rb') as fp:
+    #         while (chunk := fp.read(buffer_size)):
+    #             length = len(chunk)
+    #             json_data = "{ \"Content-Range\":\"bytes %s-%s/*\"" % (count, count - 1 + length)
+    #             self.do_put_chunk(chunk, count, count -1 + length)
+    #             count = count + length
+          
+    # def do_put_chunk(self, bytes, start_byte, length, sha256 = None):
+    #     self.req_wrapper.do_put_request("url", file)
+  
+    # def create_upload(self, package_file):
+    #     file_size = os.path.getsize(package_file)
+    #     json_data = self.post_pulp_var("/pulp/api/v3/uploads", "{ \"size\":\"%s\" }" % file_size)
+    #     return json_data["pulp_href"]
     
-#     def do_upload(self, package_file):
-#         buffer_size = 1024
-#         count = 0
-#         with io.open(package_file, 'rb') as fp:
-#             while (chunk := fp.read(buffer_size)):
-#                 length = len(chunk)
-#                 json_data = "{ \"Content-Range\":\"bytes %s-%s/*\"" % (count, count - 1 + length)
-#                 self.do_put_chunk(chunk, count, count -1 + length)
-#                 count = count + length
-            
-#     def do_put_chunk(self, bytes, start_byte, length, sha256 = None):
-#         self.req_wrapper.do_put_request("url", file)
-    
-#     def create_upload(self, package_file):
-#         file_size = os.path.getsize(package_file)
-#         json_data = self.post_pulp_var("/pulp/api/v3/uploads", "{ \"size\":\"%s\" }" % file_size)
-#         return json_data["pulp_href"]
     
     
 
@@ -204,6 +261,8 @@ class function_interactions(base_interactions):
     def __init__(self, pulp_url, username, password):
         super(function_interactions, self).__init__(pulp_url, username, password)
         self.getter = get_interactions(pulp_url, username, password)
+        self.creator = create_interactions(pulp_url, username, password)
+        self.deleter = delete_interactions(pulp_url, username, password)
         
     def sync_repository_with_remote(self, repository, remote = None, sync_policy = "mirror_complete", wait_for_task = True):
         append = ""
@@ -214,24 +273,56 @@ class function_interactions(base_interactions):
         if wait_for_task:
             self.wait_for_task(task_href)
     
-    def copy(self, source_repository_name, destination_repository_name, package_list = [], dependency_list = []):
-        src_href = self.getter.get_repo_version_href(source_repository_name)
-        dst_href = self.getter.get_repo_href(destination_repository_name)
+    def copy(self, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
+        src_href = self.getter.get_repository_version_href(source_repository_name)
+        dst_href = self.getter.get_repository_href(destination_repository_name)
         json_data = "{ \"config\": [ { \"source_repo_version\":\"%s\", \"dest_repo\":\"%s\"" % (src_href, dst_href)
         if len(package_list) > 0:
-            pkg_list = ", \"content\": %s" % package_list
-            json_data += (", %s" % pkg_list)
-        response = self.post_pulp_var("/pulp/api/v3/rpm/copy/", json_data + "} ], \"dependency_solving\": true }")
-        print('Waiting for task %s' % response)
-        self.wait_for_task(response)
+            pkg_list = ", \"content\": ["
+            start = True
+            for p in package_list:
+                if not start:
+                    pkg_list += ","
+                if p.startswith("/pulp/api/v3/content/"):
+                    pkg_list += "\"%s\"" % p
+                else:
+                    pkg_list += "\"%s\"" % self.getter.get_package_href(p)
+                start = False
+            json_data += ("%s]" % pkg_list)
+        response = self.post_pulp_var("/pulp/api/v3/rpm/copy/", json_data + "} ], \"dependency_solving\": \"true\" }")
+        if wait_for_task:
+            self.wait_for_task(response["task"])
+        count = 1
         for i in dependency_list:
-            dep_href = self.getter.get_repo_version_href(i)
-            t_json = json_data + "} , { \"source_repo_version\":\"%s\", \"dest_repo\":\"%s\", \"content\": [] } ], \"dependency_solving\": true }" % (dep_href, dst_href)
+            dep_href = self.getter.get_repository_version_href(i)
+            temp_repository = self.creator.create_repository("temp-repository-%d" % count)
+            t_json = json_data + "} , { \"source_repo_version\":\"%s\", \"dest_repo\":\"%s\", \"content\": [] } ], \"dependency_solving\": \"true\" }" % (dep_href, temp_repository)
             response = self.post_pulp_var("/pulp/api/v3/rpm/copy/", t_json)
-            print('Waiting for task %s' % response)
-            self.wait_for_task(response)
+            if wait_for_task:
+                self.wait_for_task(response["task"])
+            count += 1
+        for i in range(count - 1, 1, -1):
+            self.copy("temp-repository-%d" % i, "temp-repository-%d" % (i - 1))
+            self.deleter.delete_repository("temp-repository-%d" % i)
+        if count > 1:
+            self.copy("temp-repository-1", destination_repository_name)
+            self.deleter.delete_repository("temp-repository-1")
             
+    def copy_filter(self, regex, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], invert_filter = False, wait_for_task = True):
+        regex_f = regex_filter(regex)
+        result_list = []
+        if package_list == []:
+            package_list = self.getter.get_all_repository_package_names(source_repository_name)
+        if invert_filter:
+            pkg_list = regex_f.invert_filter_list(package_list)
+        else:
+            pkg_list = regex_f.filter_list(package_list)
+        result_list += pkg_list
+        result_list += self.getter.get_all_repository_non_package_href(source_repository_name)
+        self.copy(source_repository_name, destination_repository_name, package_list=list(result_list), dependency_list=dependency_list, wait_for_task=wait_for_task)
             
+        
+        
 class delete_interactions(base_interactions):
     
     def __init__(self, pulp_url, username, password):
@@ -242,7 +333,7 @@ class delete_interactions(base_interactions):
         self.req_wrapper.do_delete_request("%s%s" % (self.pulp_url, href))
         
     def delete_repository(self, name):
-        self.delete_href(self.getter.get_repo_href(name))
+        self.delete_href(self.getter.get_repository_href(name))
         
     def delete_remote(self, name):
         self.delete_href(self.getter.get_remote_href(name))
@@ -255,23 +346,15 @@ class delete_interactions(base_interactions):
         distros = self.getter.get_all_distributions()
         remotes = self.getter.get_all_remotes()
         
+        print("Cleaning all repositories, remotes and distributions")
         for i in repos:
             self.delete_href(i)
         for i in distros:
             self.delete_href(i)
         for i in remotes:
             self.delete_href(i)
-            
-        print("Cleaning all repositories, remotes and distributions")
+        
         while self.getter.get_all_repositories() != [] or self.getter.get_all_remotes() != [] or self.getter.get_all_distributions() != []:
             print('.', end='')
             time.sleep(1)
-        print()
-            
-        
-        
-        
-        
-        
-        
-        
+        print("done")
