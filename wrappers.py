@@ -32,6 +32,14 @@ class req_wrapper():
         self.last_request = requests.request(method="GET", url=url, data=json_data, auth=(self.username, self.password))
         if not self.is_request_ok():
             raise Exception("Get request failed (%s): %s" % (self.last_request.status_code, self.last_request.content))
+        if int(self.last_request.headers["content-length"]) != len(self.last_request.content):
+            with requests.request(method="GET", url=url, data=json_data, auth=(self.username, self.password), stream = True) as response:
+                data = bytes()
+                for chunk in response.iter_content(chunk_size=1024):
+                    data += chunk
+                if len(data) == int(response.headers['content-length']):
+                    self.last_request = response
+                    return response
         return self.last_request
     
     def do_put_request(self, url, file, json_data = "", byte_data = None):

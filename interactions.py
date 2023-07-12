@@ -19,9 +19,9 @@ class base_interactions():
         
     def get_pulp_var(self, var_name, sub_url, json_data):
         req = self.req_wrapper.do_get_request("%s%s" % (self.pulp_url, sub_url), json_data)
-        json = json_wrapper(self.req_wrapper.get_request_content(req))
+        json = req.json() #json_wrapper(self.req_wrapper.get_request_content(req))
         result = []
-        for i in json.data['results']:
+        for i in json['results']:
             if var_name == "":
                 result.append(i)
             else:
@@ -169,7 +169,7 @@ class get_interactions(base_interactions):
         return list
     
     def get_status(self):
-        req = self.req.do_get_request("%s/pulp/api/v3/status/" % self.pulp_url)
+        req = self.req_wrapper.do_get_request("%s/pulp/api/v3/status/" % self.pulp_url)
         json = json_wrapper(self.req_wrapper.get_request_content(req))
         return json.data
 
@@ -269,9 +269,24 @@ class function_interactions(base_interactions):
         if remote != None:
             append = ", \"remote\": \"%s\"" % remote
         json_data = "{ \"sync_policy\": \"%s\" %s}" % (sync_policy, append)
-        task_href = self.post_pulp_var("%ssync/" % repository, json_data)["task"]
-        if wait_for_task:
-            self.wait_for_task(task_href)
+        try:
+            try:
+                task_href = self.post_pulp_var("%ssync/" % repository, json_data)["task"]
+            except Exception:
+                task_href = self.post_pulp_var("%s/sync/" % repository, json_data)["task"]
+            if wait_for_task:
+                self.wait_for_task(task_href)
+        except Exception as e:
+            json = self.show_href(task_href)
+            if json["state"] != "failed":
+                raise e
+            elif sync_policy == "mirror_complete" and "MIRROR_INCOMPATIBLE_REPO_ERR_MSG" in json["error"]["traceback"]:
+                print("MIRROR_INCOMPATIBLE_REPO_ERR_MSG: Trying \"additive\" instead")
+                self.sync_repository_with_remote(repository, remote, "additive", wait_for_task)
+            else:
+                raise e
+                
+        
     
     def copy(self, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
         src_href = self.getter.get_repository_version_href(source_repository_name)
@@ -308,6 +323,7 @@ class function_interactions(base_interactions):
             self.copy("temp-repository-1", destination_repository_name)
             self.deleter.delete_repository("temp-repository-1")
             
+    # Default, filter = include
     def copy_filter(self, regex, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], invert_filter = False, wait_for_task = True):
         regex_f = regex_filter(regex)
         result_list = []
@@ -320,6 +336,48 @@ class function_interactions(base_interactions):
         result_list += pkg_list
         result_list += self.getter.get_all_repository_non_package_href(source_repository_name)
         self.copy(source_repository_name, destination_repository_name, package_list=list(result_list), dependency_list=dependency_list, wait_for_task=wait_for_task)
+    
+    def copy_filter_multiple(self, regex_list, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
+        excludes = []
+        includes = []
+        for filter, invert in regex_list.items():
+            if invert:
+                excludes.append(filter)
+            else:
+                includes.append(filter)
+        self.copy_filters_multiple(source_repository_name, destination_repository_name, includes, excludes, package_list, dependency_list, wait_for_task)
+
+    def copy_filters_multiple(self, source_repository_name, destination_repository_name, includes = [], excludes = [], package_list = [], dependency_list = [], wait_for_task = True):
+        repo_name = "intermediate_repo"
+        self.creator.create_repository(repo_name)
+        self.copy_include_filters(excludes, source_repository_name, repo_name, package_list, dependency_list, wait_for_task)
+        if includes == []:
+            self.copy(repo_name, destination_repository_name, package_list, dependency_list, wait_for_task)
+        else:
+            self.copy_include_filters(includes, repo_name, destination_repository_name, package_list, dependency_list, wait_for_task)        
+        self.deleter.delete_repository(repo_name)
+
+    def copy_include_filters(self, includes, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
+        for include in includes:
+            self.copy_filter(include, source_repository_name, destination_repository_name, package_list, dependency_list, False, wait_for_task)
+            
+            
+    def copy_exclude_filters(self, excludes, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
+        t_repo_1 = "temporary_repo_1"
+        t_repo_2 = "temporary_repo_1"
+        self.creator.create_repository(t_repo_1)
+        self.creator.create_repository(t_repo_2)
+        self.copy(source_repository_name, t_repo_1)
+        for exclude in excludes:
+            self.copy_filter(exclude, t_repo_1, t_repo_2, package_list, dependency_list, True, wait_for_task)
+            self.deleter.delete_repository(t_repo_1)
+            self.creator.create_repository(t_repo_1)
+            self.copy(t_repo_2, t_repo_1)
+            self.deleter.delete_repository(t_repo_2)
+            self.creator.create_repository(t_repo_2)
+        self.copy(t_repo_1, destination_repository_name)
+        self.deleter.delete_repository(t_repo_1)
+        self.deleter.delete_repository(t_repo_2)
             
         
         
