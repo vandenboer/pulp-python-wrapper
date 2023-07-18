@@ -10,6 +10,8 @@ import getopt, sys
 from pulp_manager import pulp_manager
 from fetcher import parse_yum_to_json
 from fetcher import read_json
+from wrappers import json_environment_parser
+
 
 vars = {}
 username = None
@@ -17,10 +19,9 @@ password = None
 pulp_username = None
 pulp_password = None
 pulp_url = None
-json_file = None
-rjson_file = None
-yum_file = None
-ryum_file = None
+do_clean = False
+parse_from = {}
+
 
 def usage():
     print("Useable parameters:")
@@ -31,19 +32,27 @@ def usage():
     print("--pulp-username    : username to access pulp with")
     print("--pulp-password    : password to access pulp with")
     print("--pulp-url         : url of the pulp instance")
-    print("--json             : json file to parse from")
-    print("--remote-json-file : remote file to parse from")
-    print("--remote-yum-file  : remote file to parse from")
-    print("--yum-conf         : yum config file to parse from")
+    print("--json             : json files to parse from")
+    print("--remote-json-file : remote files to parse from")
+    print("--remote-yum-conf  : remote files to parse from")
+    print("--yum-conf         : yum config files to parse from")
+    print("--clean            : clean pulp repositories, remotes and distributions from pulp before creation")
+
+
+if sys.argv[1:] == []:
+    usage()
+
 
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "e:u:p:h", ["environment","username","password","json", "remote-json-file", "yum-conf", "yum-remote-conf", "pulp-password", "pulp-username"])
+    opts, args = getopt.getopt(sys.argv[1:], "e:u:p:h", ["environment =","username =","password =","json =", "remote-json-file =", "yum-conf =", "remote-yum-conf =", "pulp-password =", "pulp-username =", "pulp-url =", "clean"])
 except getopt.GetoptError as err:
     print(err)
     usage()
     sys.exit(1)
 
+
 for option, argument in opts:
+    option = option.strip()
     if option == "-h":
         usage()
         sys.exit()
@@ -60,25 +69,28 @@ for option, argument in opts:
         pulp_password = argument
     elif option == "--pulp-url":
         pulp_url = argument
+    elif option == "--clean":
+        do_clean = True
     elif option == "--json":
-        json_file = argument
+        parse_from[argument] = { "json": True, "remote": False }
     elif option == "--yum-conf":
-        yum_file = argument
+        parse_from[argument] = { "json": False, "remote": False }
     elif option == "--remote-json-file":
-        rjson_file = argument
-    elif option == "--remote-yum-file":
-        ryum_file = argument
+        parse_from[argument] = { "json": True, "remote": True }
+    elif option == "--remote-yum-conf":
+        parse_from[argument] = { "json": False, "remote": True }
     else:
         print("unhandled option: %s" % option)
         sys.exit(2)
 
-pulp_mgr = pulp_manager(pulp_url, pulp_username, pulp_password)
 
-if json_file:
-    pulp_mgr.setup_from_json(read_json(json_file, False, username, password))
-if rjson_file:
-    pulp_mgr.setup_from_json(read_json(rjson_file, True, username, password))
-if yum_file:
-    pulp_mgr.setup_from_json(parse_yum_to_json(yum_file, False, username, password))
-if ryum_file:
-    pulp_mgr.setup_from_json(parse_yum_to_json(ryum_file, True, username, password))
+pulp_mgr = pulp_manager(pulp_url, pulp_username, pulp_password)
+if do_clean:
+    pulp_mgr.deleter.delete_all()
+
+# This dictionary should follow the order it is being add in, if not fix.
+for file, options in parse_from.items():
+    if options["json"]:
+        pulp_mgr.setup_from_json(json_environment_parser(read_json(file, options["remote"], username, password), vars))
+    else:
+        pulp_mgr.setup_from_json(json_environment_parser(parse_yum_to_json(file, options["remote"], username, password), vars))

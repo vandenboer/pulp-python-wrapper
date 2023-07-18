@@ -65,21 +65,30 @@ class pulp_manager():
             json_data = json_input
         else:
             json_data = json.loads(json_input)
-        try:
-            remote_names = self._create_remotes_from_json(json_data['remotes'])
-            repository_names = self._create_repositories_from_json(json_data[''])
-        except Exception as e:
-            print(e)
-            remote_names = []
-        #try:
-        repository_names = self._create_repositories_from_json(json_data['repositories'])
-        #except Exception as e:
-            #print(e)
-            #repository_names = []
+        if "remotes" in json_data:
+            try:
+                remote_names = self._create_remotes_from_json(json_data['remotes'])
+            except Exception as e:
+                print(e)
+                remote_names = []
+        if "repositories" in json_data:
+            try:
+                repository_names = self._create_repositories_from_json(json_data['repositories'])
+            except Exception as e:
+                print(e)
+                repository_names = []
+        if "distributions" in json_data:
+            try:
+                distribution_names = self._create_distributions_from_json(json_data['distributions'])
+            except Exception as e:  
+                print(e)
+                distribution_names = []
             
     
     def _create_remotes_from_json(self, remotes_json):
+        result = []
         for remote_name, remote_values in remotes_json.items():
+            result.append(remote_name)
             if "url" in remote_values:
                 url = remote_values["url"]
             else:
@@ -99,9 +108,12 @@ class pulp_manager():
                 password = url.split("@")[0].split(":")[2]
                 url = url.split("@")[1]
             self.creator.create_remote(remote_name, url, policy, username, password)
+        return result
     
     def _create_repositories_from_json(self, repositories_json):
+        result = []
         for repository_name, repository_values in repositories_json.items():
+            result.append(repository_name)
             is_created = False
             try:
                 remote = None
@@ -127,12 +139,38 @@ class pulp_manager():
                     self.deleter.delete_repository(tmp_repo)
                 else:
                     self.functions.sync_repository_with_remote(self.getter.get_repository_href(repository_name), None, sync_policy)
-            except Exception as e:
+            except Exception:
                 print("error with repository (%s) with %s" % (repository_name, repository_values))
-                traceback.print_exception(e)
+                traceback.print_exc()
                 print("Skipping...")
                 if is_created:
                     self.deleter.delete_repository(tmp_repo)
+        return result
+    
+    def _create_distributions_from_json(self, distribution_json):
+        result = []
+        for distribution_name, distribution_values in distribution_json.items():
+            try:
+                if "base_path" in distribution_values:
+                    base_path = distribution_values["base_path"]
+                else:
+                    base_path = distribution_name
+                if "repository" in distribution_values:
+                    repository = self.getter.get_repository_href(distribution_values["repository"])
+                if repository == "*":
+                    unified_name = "unified"
+                    self.creator.create_repository(unified_name)
+                    repositories = self.getter.get_all_repositories()
+                    for repo in repositories:
+                        self.functions.copy(self.getter.get_repository_name(repo), unified_name)
+                    self.publish_repository(self.getter.get_repository_href(unified_name), distribution_name, base_path)
+                else:
+                    self.publish_repository(repository, distribution_name, base_path)
+            except Exception:
+                print("error with distribution (%s) with %s" % (distribution_name, distribution_values))
+                traceback.print_exc()
+                print("Skipping...")
+        return result
             
     def _gen_filter_list(self, excludes, includes):
         result = {}

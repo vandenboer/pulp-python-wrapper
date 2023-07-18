@@ -106,3 +106,16 @@ class url_encoder():
     
     def __init__(self, text):
         self.encoded = requests.utils.quote(text, safe='')
+
+def json_environment_parser(json_dict, environment):
+    for key, value in json_dict.items():
+        if type(value) == dict:
+            json_environment_parser(value, environment)
+        elif type(value) == str and value.startwith("$"):
+            json_dict[key] = get_variable_value(environment, value.replace("$", "", 1))
+    return json_dict
+
+def get_variable_value(environment, name):
+    for key, value in environment.items():
+        if key == name:
+            return value

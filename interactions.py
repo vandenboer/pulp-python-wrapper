@@ -406,13 +406,16 @@ class delete_interactions(base_interactions):
         
         print("Cleaning all repositories, remotes and distributions")
         for i in repos:
+            print('.', end='')
             self.delete_href(i)
         for i in distros:
+            print('.', end='')
             self.delete_href(i)
         for i in remotes:
+            print('.', end='')
             self.delete_href(i)
         
         while self.getter.get_all_repositories() != [] or self.getter.get_all_remotes() != [] or self.getter.get_all_distributions() != []:
             print('.', end='')
             time.sleep(1)
-        print("done")
+        print(".done")
