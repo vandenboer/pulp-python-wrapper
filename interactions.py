@@ -340,17 +340,17 @@ class function_interactions(base_interactions):
     def copy_filter_multiple(self, regex_list, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
         excludes = []
         includes = []
-        for filter, invert in regex_list.items():
+        for expression, invert in regex_list.items():
             if invert:
-                excludes.append(filter)
+                excludes.append(expression)
             else:
-                includes.append(filter)
+                includes.append(expression)
         self.copy_filters_multiple(source_repository_name, destination_repository_name, includes, excludes, package_list, dependency_list, wait_for_task)
 
     def copy_filters_multiple(self, source_repository_name, destination_repository_name, includes = [], excludes = [], package_list = [], dependency_list = [], wait_for_task = True):
         repo_name = "intermediate_repo"
         self.creator.create_repository(repo_name)
-        self.copy_include_filters(excludes, source_repository_name, repo_name, package_list, dependency_list, wait_for_task)
+        self.copy_exclude_filters(excludes, source_repository_name, repo_name, package_list, dependency_list, wait_for_task)
         if includes == []:
             self.copy(repo_name, destination_repository_name, package_list, dependency_list, wait_for_task)
         else:
@@ -364,7 +364,7 @@ class function_interactions(base_interactions):
             
     def copy_exclude_filters(self, excludes, source_repository_name, destination_repository_name, package_list = [], dependency_list = [], wait_for_task = True):
         t_repo_1 = "temporary_repo_1"
-        t_repo_2 = "temporary_repo_1"
+        t_repo_2 = "temporary_repo_2"
         self.creator.create_repository(t_repo_1)
         self.creator.create_repository(t_repo_2)
         self.copy(source_repository_name, t_repo_1)

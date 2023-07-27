@@ -13,7 +13,7 @@ def read_json(json_file, is_remote = False, username = None, password = None):
     if is_remote:
         return requests.get(json_file, auth = (username, password)).json
     with open(json_file, "r") as file:
-        return json.loads(file.readall().decode()).data
+        return json.loads(file.read())
 
 def _parse_yum(yum_file, is_remote = False, username = None, password = None):
     if is_remote:
@@ -39,6 +39,10 @@ def _yum_parse_lines(lines):
             if "#" in line:
                 line = line.split("#")[0]
             fields=line.split("=", 1)
+            if fields[0] == "excludepkgs":
+                fields[0] = "exclude"
+            if fields[0] == "includepkgs":
+                fields[0] = "include"
             mirrors[mirror_name][fields[0]] = fields[1]
     return mirrors
 

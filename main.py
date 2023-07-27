@@ -38,7 +38,6 @@ def usage():
     print("--yum-conf         : yum config files to parse from")
     print("--clean            : clean pulp repositories, remotes and distributions from pulp before creation")
 
-
 if sys.argv[1:] == []:
     usage()
 

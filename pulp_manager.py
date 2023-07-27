@@ -156,16 +156,18 @@ class pulp_manager():
                 else:
                     base_path = distribution_name
                 if "repository" in distribution_values:
-                    repository = self.getter.get_repository_href(distribution_values["repository"])
-                if repository == "*":
-                    unified_name = "unified"
-                    self.creator.create_repository(unified_name)
-                    repositories = self.getter.get_all_repositories()
-                    for repo in repositories:
-                        self.functions.copy(self.getter.get_repository_name(repo), unified_name)
-                    self.publish_repository(self.getter.get_repository_href(unified_name), distribution_name, base_path)
+                    if distribution_values["repository"] == "*":
+                        unified_name = "unified_repo_" + distribution_name
+                        self.creator.create_repository(unified_name)
+                        repositories = self.getter.get_all_repositories()
+                        for repo in repositories:
+                            self.functions.copy(self.getter.get_repository_name(repo), unified_name)
+                        self.publish_repository(self.getter.get_repository_href(unified_name), distribution_name, base_path)
+                    else:
+                        repository = self.getter.get_repository_href(distribution_values["repository"])
+                        self.publish_repository(repository, distribution_name, base_path)
                 else:
-                    self.publish_repository(repository, distribution_name, base_path)
+                    print("No repository specified for distribution %s, skipping..." % distribution_name)
             except Exception:
                 print("error with distribution (%s) with %s" % (distribution_name, distribution_values))
                 traceback.print_exc()
